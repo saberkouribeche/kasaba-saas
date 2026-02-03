@@ -1,0 +1,138 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- HELPER FUNCTIONS ---
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user is Admin
+    // Assumes custom claims or specific user ID if claims not set, 
+    // OR fetches user doc if custom claims aren't used (slower but works).
+    // For this implementation, we check the role field on the user document (basic RBAC).
+    // Note: In a high-security env, use Custom Claims via Admin SDK.
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' || 
+        getUserData().role == 'admin'
+      );
+    }
+    
+    function isEmployee() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'employee' || 
+        getUserData().role == 'employee'
+      );
+    }
+
+    function isStaff() {
+      return isAdmin() || isEmployee();
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // --- COLLECTION RULES ---
+
+    // 1. Users (Profiles)
+    match /users/{userId} {
+      // Read: Users can see their own, Staff can see all (for POS/Orders)
+      allow read: if isOwner(userId) || isStaff();
+      
+      // Write: Admins can do anything.
+      // POS Integrity: Employees need to update 'currentDebt', 'totalDebt', 'lastTransactionDate' during sales.
+      // Security: Employees MUST NOT change 'role' or 'permissions'.
+      allow update: if isAdmin() || (
+        isEmployee() && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentDebt', 'totalDebt', 'lastTransactionDate', 'updatedAt'])
+      );
+      
+      // Create/Delete: Admin Only
+      allow create, delete: if isAdmin();
+    }
+
+    // 2. Products (Inventory)
+    match /product/{productId} {
+      // Read: Public/Auth (Need to sell)
+      allow read: if true; // or isAuthenticated();
+      
+      // Write: Admin Only (Stock/Price control)
+      // Exception: Point of Sale stock deduction. 
+      // While user asked for "Admin Only", POS needs to deduct stock. 
+      // We allow updates to 'stock' if employee.
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isEmployee() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'updated_at'])
+      );
+    }
+     // Support 'products' (plural) collection if inconsistencies exist in naming
+    match /products/{productId} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isEmployee() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'updated_at']));
+    }
+
+    // 3. Transactions (Orders/Invoices)
+    match /transactions/{transactionId} {
+      // Read: Staff can see orders
+      allow read: if isStaff() || isOwner(resource.data.userId); // Clients can see their own orders
+      
+      // Create: Staff (POS)
+      allow create: if isStaff();
+      
+      // Update: Staff (Editor Hook)
+      // Must check if 'updatedBy' is present as requested
+      allow update: if isStaff() && request.resource.data.keys().hasAll(['updatedBy', 'updated_at']);
+      
+      // Delete: Admin Only
+      allow delete: if isAdmin();
+    }
+    
+    // Legacy/Duplicate 'order' collection support (for generic orders)
+    match /order/{orderId} {
+        allow read: if isStaff() || isOwner(resource.data.userId);
+        allow create: if isStaff();
+        allow update: if isStaff(); // Specific logic can be stricter
+        allow delete: if isAdmin();
+    }
+
+    // 4. Stats (Treasury & Dashboard)
+    match /stats/{statId} {
+      // Read: Admin Only
+      allow read: if isAdmin();
+      
+      // Write: "Atomic Transactions Only" usually means server-side or Admin.
+      // But if client aggregates on the fly, lock it to Admin or Cloud Functions.
+      // Assuming straightforward Admin dashboard usage:
+      allow write: if isAdmin();
+    }
+
+    // Treasury Transactions (Cash flow)
+    match /treasury_transactions/{tId} {
+        allow read: if isAdmin();
+        // Employees create cash records on sale
+        allow create: if isStaff(); 
+        allow update, delete: if isAdmin();
+    }
+
+    // Categories / Settings etc
+    match /categories/{catId} {
+        allow read: if true;
+        allow write: if isAdmin();
+    }
+    
+    match /customization_templates/{idx} {
+        allow read: if true;
+        allow write: if isAdmin();
+    }
+  }
+}

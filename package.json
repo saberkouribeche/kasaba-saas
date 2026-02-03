@@ -1,0 +1,36 @@
+{
+  "name": "kasaba-saas",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@ducanh2912/next-pwa": "^10.2.9",
+    "clsx": "^2.1.1",
+    "firebase": "^12.7.0",
+    "firebase-admin": "^13.6.0",
+    "framer-motion": "^12.27.1",
+    "idb": "^8.0.3",
+    "lucide-react": "^0.562.0",
+    "next": "16.1.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-facebook-pixel": "^1.0.4",
+    "react-hot-toast": "^2.6.0",
+    "react-to-print": "^3.2.0",
+    "recharts": "^3.7.0",
+    "sweetalert2": "^11.26.17",
+    "zustand": "^5.0.10"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.1",
+    "tailwindcss": "^4",
+    "vercel": "^50.3.2"
+  }
+}
